@@ -5,115 +5,62 @@ from scipy.spatial import cKDTree
 from scipy.ndimage import label
 import heapq
 
-def selectPoints():
-    img = cv2.imread('original.jpg')
+def selectPoints(img):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    mask = cv2.imread('mask_routes.png', 0)
-
-    # Afficher l'image et permettre à l'utilisateur de sélectionner deux points
     plt.figure(figsize=(10, 8))
     plt.imshow(img_rgb)
     plt.title('Cliquez pour sélectionner deux points')
     points = plt.ginput(2, timeout=0)
     plt.close()
-
     print('Points sélectionnés :', points)
+    return points
 
-    # Sauvegarder les points sélectionnés
-    with open('selected_points.txt', 'w') as f:
-        for pt in points:
-            f.write(f"{pt[0]},{pt[1]}\n")
-
-def barreRoute():
-    # Charger l'image originale et le masque
-    img = cv2.imread('original.jpg')
+def barreRoute(mask, img, pts=None):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    mask = cv2.imread('mask_routes.png', 0)
-
-    # Afficher l'image et permettre à l'utilisateur de tracer un trait
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.imshow(img_rgb)
-    ax.set_title('Tracez un trait pour barrer une route (clic début et fin)')
-    pts = plt.ginput(2, timeout=0)
-    plt.close()
-
+    if pts is None:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.imshow(img_rgb)
+        ax.set_title('Tracez un trait pour barrer une route (clic début et fin)')
+        pts = plt.ginput(2, timeout=0)
+        plt.close()
     if len(pts) == 2:
         x1, y1 = map(int, pts[0])
         x2, y2 = map(int, pts[1])
-        # Tracer un trait noir sur le masque
         mask_barr = mask.copy()
-        cv2.line(mask_barr, (x1, y1), (x2, y2), 0, thickness=8)  # épaisseur ajustable
-        cv2.imwrite('mask_routes.png', mask_barr)
+        cv2.line(mask_barr, (x1, y1), (x2, y2), 0, thickness=8)
         print(f'Route barrée entre ({x1},{y1}) et ({x2},{y2}) sur le masque.')
+        return mask_barr
     else:
         print('Trait non tracé, aucune modification.')
+        return mask
 
-def findNearestRoutePoints():
-    # Charger le masque des routes
-    mask = cv2.imread('mask_routes.png', 0)
-
-    # Trouver les composantes connexes sur le masque
+def findNearestRoutePoints(mask, points, k=100):
     structure = np.ones((3, 3), dtype=np.int32)
     labeled, ncomponents = label(mask == 255, structure=structure)
-
-    # Charger les points sélectionnés
-    with open('selected_points.txt', 'r') as f:
-        points = [tuple(map(float, line.strip().split(','))) for line in f.readlines()]
-
-    # Trouver les coordonnées des pixels de route (valeur blanche)
     route_pixels = np.column_stack(np.where(mask == 255))  # (y, x)
     route_pixels_xy = np.fliplr(route_pixels)  # (x, y)
-
-    # Construire un k-d tree pour les routes
     kdtree = cKDTree(route_pixels_xy)
-
-    # Pour chaque point sélectionné, on va sauvegarder les k plus proches points de route (pour test itératif)
-    k = 100  # nombre de voisins à tester
     all_candidates = []
-
     for pt in points:
-        dists, idxs = kdtree.query(pt, k=k)
-        # idxs peut être un scalaire si moins de k points
+        dists, idxs = kdtree.query(pt, k=min(k, len(route_pixels_xy)))
         if np.isscalar(idxs):
             idxs = [idxs]
-        # Convertir en int natifs Python pour la sérialisation JSON
         candidates = [tuple(int(x) for x in route_pixels_xy[i]) for i in idxs]
         all_candidates.append(candidates)
+    return all_candidates
 
-    # Sauvegarder tous les candidats pour chaque point
-    import json
-    with open('all_route_candidates.json', 'w') as f:
-        json.dump(all_candidates, f)
-
-    # Pour compatibilité, on garde le plus proche dans nearest_route_points.txt
-    nearest_route_points = [cands[0] for cands in all_candidates]
-    with open('nearest_route_points.txt', 'w') as f:
-        for pt in nearest_route_points:
-            f.write(f"{pt[0]},{pt[1]}\n")
-
-def computeShortestPath():
-    # Charger le masque
-    mask = cv2.imread('mask_routes.png', 0)
-    # Charger tous les candidats pour chaque point
-    import json
-    with open('all_route_candidates.json', 'r') as f:
-        all_candidates = json.load(f)
-    if len(all_candidates) != 2:
-        print('Erreur : il faut deux listes de candidats.')
-        return
-    # Créer une grille de poids (0 = obstacle, 1 = route)
+def computeShortestPath(mask, all_candidates):
     grid = (mask == 255).astype(np.uint8)
     height, width = grid.shape
 
-    def neighbors(x, y, width, height, grid):
+    def neighbors(x, y):
         for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
             nx, ny = x+dx, y+dy
             if 0 <= nx < width and 0 <= ny < height:
                 if grid[ny, nx]:
                     yield nx, ny
 
-    def dijkstra(start, end, grid):
-        height, width = grid.shape
+    def dijkstra(start, end):
         dist = np.full((height, width), np.inf)
         prev = np.full((height, width, 2), -1, dtype=int)
         dist[start[1], start[0]] = 0
@@ -122,13 +69,12 @@ def computeShortestPath():
             d, (x, y) = heapq.heappop(heap)
             if (x, y) == end:
                 break
-            for nx, ny in neighbors(x, y, width, height, grid):
+            for nx, ny in neighbors(x, y):
                 alt = d + 1
                 if alt < dist[ny, nx]:
                     dist[ny, nx] = alt
                     prev[ny, nx] = [x, y]
                     heapq.heappush(heap, (alt, (nx, ny)))
-        # Reconstruire le chemin
         path = []
         x, y = end
         while (x, y) != start:
@@ -140,13 +86,12 @@ def computeShortestPath():
         path.reverse()
         return path
 
-    # Essayer tous les couples de candidats (ordre croissant de distance)
     found = False
     for start in all_candidates[0]:
         for end in all_candidates[1]:
             start = tuple(map(int, start))
             end = tuple(map(int, end))
-            path = dijkstra(start, end, grid)
+            path = dijkstra(start, end)
             if path:
                 found = True
                 break
@@ -155,20 +100,15 @@ def computeShortestPath():
 
     if not found or not path:
         print('Aucun chemin trouvé pour les k plus proches points.')
-        return
+        return None, None, []
     print(f'Chemin trouvé de {start} à {end}, longueur : {len(path)}')
+    return start, end, path
 
-    # Afficher le chemin sur l'image originale
-    img = cv2.imread('original.jpg')
+def plotPath(img, path, start, end):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
     for (x, y) in path:
         cv2.circle(img_rgb, (x, y), 1, (255,0,0), -1)
-
-    # Afficher le point de départ en vert
     cv2.circle(img_rgb, start, 4, (0,255,0), -1)
-
-    # Afficher un drapeau pour l'arrivée (triangle rouge)
     flag_size = 12
     flag_base = np.array([
         [end[0], end[1]],
@@ -177,26 +117,39 @@ def computeShortestPath():
     ], np.int32)
     cv2.fillPoly(img_rgb, [flag_base], (255,0,0))
     cv2.line(img_rgb, (end[0], end[1]), (end[0], end[1] + flag_size), (0,0,0), 2)
-
     plt.figure(figsize=(10,8))
     plt.imshow(img_rgb)
     plt.title('Chemin le plus court superposé')
     plt.show()
-
-    # Sauvegarder l'image avec le chemin
     img_out = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
     cv2.imwrite('chemin_superpose.png', img_out)
     print('Image avec chemin sauvegardée sous chemin_superpose.png')
 
+def pixels_to_cm(length_pixels):
+    return length_pixels * 0.02646
+
 if __name__ == "__main__":
-    # Étape 1 : Sélectionner les points
-    selectPoints()
+    # Charger les images en variables
+    img = cv2.imread('original.jpg')
+    mask = cv2.imread('mask_routes.png', 0)
 
-    # Étape 2 : Barrer une route si nécessaire
-    # barreRoute()
+    # Étape 1 : Sélectionner les points (en variable)
+    points = selectPoints(img)
 
-    # Étape 3 : Trouver les points de route les plus proches
-    findNearestRoutePoints()
+    # Étape 2 : Barrer une route si nécessaire (en variable)
+    # mask = barreRoute(mask, img)  # décommentez pour activer
 
-    # Étape 4 : Calculer le chemin le plus court entre les deux points
-    computeShortestPath()
+    # Étape 3 : Trouver les points de route les plus proches (en variable)
+    all_candidates = findNearestRoutePoints(mask, points, k=100)
+
+    # Étape 4 : Calculer le chemin le plus court entre les deux points (en variable)
+    start, end, path = computeShortestPath(mask, all_candidates)
+
+    # Étape 5 : Afficher et sauvegarder le chemin (en variable)
+    if path:
+        plotPath(img, path, start, end)
+        length_pixels = len(path)
+        length_cm = pixels_to_cm(length_pixels)
+        print(f"Longueur du chemin : {length_pixels} pixels, soit {length_cm:.2f} cm")
+    else:
+        print("Aucun chemin trouvé entre les deux points.")
