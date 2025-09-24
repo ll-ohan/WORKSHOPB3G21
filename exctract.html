@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extracteur de Masque de Routes</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .upload-zone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-zone:hover {
+            border-color: #007bff;
+        }
+        canvas {
+            border: 1px solid #ccc;
+            max-width: 100%;
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ Extracteur de Masque de Routes</h1>
+        <p>Chargez une carte pour générer automatiquement un masque PNG (routes en noir, fond en blanc).</p>
+        
+        <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+            <p>📁 Cliquez ici ou glissez-déposez votre image de carte</p>
+            <p style="font-size: 12px; color: #666;">Formats supportés: PNG, JPG, JPEG</p>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" style="display:none;">
+        
+        <h3>Masque généré</h3>
+        <canvas id="maskCanvas"></canvas>
+    </div>
+
+    <script>
+        let maskCanvas, maskCtx, imageData, maskData;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            maskCanvas = document.getElementById('maskCanvas');
+            maskCtx = maskCanvas.getContext('2d');
+
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadZone = document.querySelector('.upload-zone');
+
+            fileInput.addEventListener('change', handleFileSelect);
+
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    loadImage(files[0]);
+                }
+            });
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                loadImage(file);
+            }
+        }
+
+        function loadImage(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const maxSize = 800;
+                    let { width, height } = img;
+                    
+                    if (width > maxSize || height > maxSize) {
+                        const scale = Math.min(maxSize / width, maxSize / height);
+                        width *= scale;
+                        height *= scale;
+                    }
+                    
+                    maskCanvas.width = width;
+                    maskCanvas.height = height;
+
+                    maskCtx.drawImage(img, 0, 0, width, height);
+                    imageData = maskCtx.getImageData(0, 0, width, height);
+
+                    processImage(); // directement après chargement
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function processImage() {
+            if (!imageData) return;
+
+            const threshold = 200; // Valeur fixe
+
+            // Créer le masque routes = noir, fond = blanc
+            maskData = createRoadMask(imageData, threshold);
+
+            // Afficher résultat
+            maskCtx.putImageData(maskData, 0, 0);
+
+            // Télécharger automatiquement le PNG
+            downloadMask();
+        }
+
+        function createRoadMask(imgData, threshold) {
+            const data = new Uint8ClampedArray(imgData.data);
+            const width = imgData.width;
+            const height = imgData.height;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                const intensity = (r + g + b) / 3;
+                const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+
+                const isGrayRoad = saturation < 30 && intensity > threshold && intensity < 240;
+                const isColoredRoad = (
+                    (r > 200 && g > 150 && b < 100) ||
+                    (r > 150 && g > 100 && b < 50) ||
+                    (Math.abs(r - g) < 50 && b < r - 50)
+                );
+                const isBlueRoad = (b > r + 30 && b > g + 30 && b > 100);
+
+                if (isGrayRoad || isColoredRoad || isBlueRoad) {
+                    // Route = noir
+                    data[i] = data[i + 1] = data[i + 2] = 0;
+                } else {
+                    // Fond = blanc
+                    data[i] = data[i + 1] = data[i + 2] = 255;
+                }
+                data[i + 3] = 255;
+            }
+            return new ImageData(data, width, height);
+        }
+
+        function downloadMask() {
+            maskCanvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'road_mask.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+    </script>
+</body>
+</html>
