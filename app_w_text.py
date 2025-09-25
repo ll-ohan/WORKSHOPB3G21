@@ -6,6 +6,7 @@ from scipy.ndimage import label
 import heapq
 from PIL import Image
 import io
+import math
 
 def load_image_from_bytes(image_bytes):
     """Charger une image depuis des bytes"""
@@ -118,8 +119,125 @@ def drawPath(img, path, start, end):
     cv2.line(img_rgb, (end[0], end[1]), (end[0], end[1] + flag_size), (0,0,0), 2)
     return img_rgb
 
-def pixels_to_cm(length_pixels):
-    return length_pixels * 0.02646
+def pixels_to_distance(length_pixels, scale_m_per_cm):
+    """Convertir les pixels en distance réelle selon l'échelle
+    
+    Étapes :
+    1. pixels -> cm : pixels * 0.02646
+    2. cm -> mètres réels : produit en croix selon l'échelle
+    
+    Exemple : 600 pixels, échelle 1cm = 200m
+    - 600 * 0.02646 = 15.88 cm
+    - 15.88 cm * 200 m/cm = 3176 m
+    """
+    cm = length_pixels * 0.02646
+    meters = cm * scale_m_per_cm
+    return meters
+
+import math
+
+# def distance(p1, p2):
+#     """Distance euclidienne entre deux points"""
+#     return math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+
+# def angle_direction(p1, p2, p3):
+#     """Détermine l'angle et la direction (gauche/droite)"""
+#     v1 = (p2[0]-p1[0], p2[1]-p1[1])
+#     v2 = (p3[0]-p2[0], p3[1]-p2[1])
+    
+#     # Produit vectoriel pour savoir gauche/droite
+#     cross = v1[0]*v2[1] - v1[1]*v2[0]
+    
+#     # Produit scalaire pour l'angle
+#     dot = v1[0]*v2[0] + v1[1]*v2[1]
+#     norm1 = math.sqrt(v1[0]**2 + v1[1]**2)
+#     norm2 = math.sqrt(v2[0]**2 + v2[1]**2)
+#     angle = math.degrees(math.acos(dot/(norm1*norm2)))
+    
+#     if cross > 0:
+#         direction = "gauche"
+#     elif cross < 0:
+#         direction = "droite"
+#     else:
+#         direction = "tout droit"
+    
+#     return angle, direction
+
+# def generate_route_instructions(points, distance_reelle_km, distance_pixels):
+#     """Génère un texte d'itinéraire"""
+#     # Conversion px -> mètres
+#     pixel_to_m = (distance_reelle_km * 1000) / distance_pixels
+    
+#     instructions = ["🚩 Départ"]
+#     cumule_px = 0
+    
+#     for i in range(1, len(points)-1):
+#         d = distance(points[i-1], points[i])
+#         cumule_px += d
+#         dist_m = cumule_px * pixel_to_m
+        
+#         angle, direction = angle_direction(points[i-1], points[i], points[i+1])
+        
+#         # Formater la distance
+#         if dist_m >= 1000:
+#             texte_dist = f"📍Après {dist_m/1000:.1f} km"
+#         else:
+#             texte_dist = f"📍Après {int(dist_m)} m"
+        
+#         instructions.append(f"{texte_dist}, {direction}")
+    
+#     instructions.append("🏁 Arrivée")
+#     return instructions
+
+
+# def generate_route_instructions(path, scale_m_per_cm, 
+#                                 min_distance_between_turns=80, 
+#                                 angle_threshold=60, 
+#                                 max_turns=20):
+#     """
+#     Générer les instructions d'itinéraire avec des distances le long du chemin,
+#     pour que la somme des distances corresponde à la distance totale.
+#     """
+#     if len(path) < 3:
+#         return ["Itinéraire trop court pour générer des instructions."]
+
+#     # Détection des virages
+#     key_indices = [0]
+#     for i in range(1, len(path)-1):
+#         angle = calculate_angle(path[i-1], path[i], path[i+1])
+#         if abs(angle) >= angle_threshold:
+#             key_indices.append(i)
+#     key_indices.append(len(path)-1)
+
+#     instructions = ["🚩 Départ"]
+
+#     for i in range(1, len(key_indices)-1):
+#         idx_prev = key_indices[i-1]
+#         idx = key_indices[i]
+#         idx_next = key_indices[i+1]
+
+#         # Distance parcourue le long du chemin depuis le dernier changement
+#         dist_m = distance_along_path(path, idx_prev, idx, scale_m_per_cm)
+
+#         if dist_m < min_distance_between_turns:
+#             continue
+
+#         angle = calculate_angle(path[idx_prev], path[idx], path[idx_next])
+#         direction = get_direction_instruction(angle)
+
+#         if "tournez" in direction:
+#             distance_str = f"{dist_m:.0f}m" if dist_m < 1000 else f"{dist_m/1000:.1f}km"
+#             instructions.append(f"📍 Après {distance_str}, {direction}")
+
+#     # Dernier tronçon (jusqu'à l'arrivée)
+#     idx_last = key_indices[-2]
+#     idx_end = key_indices[-1]
+#     dist_m = distance_along_path(path, idx_last, idx_end, scale_m_per_cm)
+#     distance_str = f"{dist_m:.0f}m" if dist_m < 1000 else f"{dist_m/1000:.1f}km"
+#     instructions.append(f"📍 Continuez sur {distance_str}")
+
+#     instructions.append("🏁 Arrivée")
+#     return instructions
 
 # Configuration de la page Streamlit
 st.set_page_config(
@@ -138,6 +256,8 @@ if 'barrier_points' not in st.session_state:
     st.session_state.barrier_points = []
 if 'path_calculated' not in st.session_state:
     st.session_state.path_calculated = False
+if 'route_instructions' not in st.session_state:
+    st.session_state.route_instructions = []
 
 # Interface pour charger les images
 col1, col2 = st.columns(2)
@@ -212,6 +332,23 @@ if original_file and mask_file:
                 st.session_state.path_calculated = False
                 st.rerun()
         
+        # Configuration de l'échelle
+        st.subheader("📏 Configuration de l'échelle")
+        
+        col_scale1, col_scale2 = st.columns(2)
+        with col_scale1:
+            scale_cm = st.number_input("1 cm sur la carte =", min_value=1, max_value=10000, value=200, step=10, key="scale_cm")
+        with col_scale2:
+            scale_unit = st.selectbox("Unité", ["mètres", "kilomètres"], key="scale_unit")
+        
+        # Calculer l'échelle en m/cm
+        if scale_unit == "kilomètres":
+            scale_m_per_cm = scale_cm * 1000
+        else:
+            scale_m_per_cm = scale_cm
+            
+        st.info(f"Échelle : 1 cm = {scale_cm} {scale_unit}")
+        
         st.markdown("---")
         
         # Calcul du chemin
@@ -237,12 +374,40 @@ if original_file and mask_file:
                             'mask': working_mask
                         }
                         st.session_state.path_calculated = True
-                        st.success(f"Chemin trouvé ! Longueur: {len(path)} pixels")
+                        st.success(f"Chemin trouvé !")
                         
                         # Calcul de la distance
                         length_pixels = len(path)
-                        length_cm = pixels_to_cm(length_pixels)
-                        st.metric("Distance", f"{length_cm:.2f} cm", f"{length_pixels} pixels")
+                        length_cm = length_pixels * 0.02646
+                        length_m = pixels_to_distance(length_pixels, scale_m_per_cm)
+                        
+                        # Affichage des métriques
+                        col_metric1, col_metric2, col_metric3 = st.columns(3)
+                        with col_metric1:
+                            st.metric("Distance (pixels)", f"{length_pixels}", "pixels")
+                        
+                        with col_metric2:
+                            st.metric("Distance (carte)", f"{length_cm:.2f}", "cm")
+                        
+                        with col_metric3:
+                            if length_m < 1000:
+                                st.metric("Distance réelle", f"{length_m:.0f}", "m")
+                            else:
+                                st.metric("Distance réelle", f"{length_m/1000:.2f}", "km")
+                        
+                        # Temps estimé
+                        time_hours = length_m / 1000 / 6  # 5 km/h à pied
+                        if time_hours < 1:
+                            time_str = f"{time_hours * 60:.0f} min"
+                        else:
+                            time_str = f"{time_hours:.1f}h"
+                        
+                        st.info(f"⏱️ **Temps estimé à pied (6 km/h) :** {time_str}")
+                        
+                        # Générer les instructions d'itinéraire
+                        # st.session_state.route_instructions = generate_route_instructions(
+                        #     path, scale_m_per_cm, length_pixels
+                        # )
                     else:
                         st.error("Aucun chemin trouvé entre les deux points.")
         else:
@@ -251,25 +416,61 @@ if original_file and mask_file:
     with col1:
         # Affichage de l'image avec interaction
         if st.session_state.path_calculated and 'path_result' in st.session_state:
-            # Afficher l'image avec le chemin
-            result_img = drawPath(img, 
-                                st.session_state.path_result['path'], 
-                                st.session_state.path_result['start'], 
-                                st.session_state.path_result['end'])
+            # Créer deux colonnes pour l'image et les instructions
+            col_img, col_instructions = st.columns([3, 2])
             
-            st.image(result_img, caption="Chemin le plus court calculé", use_container_width=True)
+            with col_img:
+                # Afficher l'image avec le chemin
+                result_img = drawPath(img, 
+                                    st.session_state.path_result['path'], 
+                                    st.session_state.path_result['start'], 
+                                    st.session_state.path_result['end'])
+                
+                st.image(result_img, caption="Chemin le plus court calculé", use_container_width=True)
+                
+                # Bouton de téléchargement
+                result_pil = Image.fromarray(result_img)
+                buf = io.BytesIO()
+                result_pil.save(buf, format='PNG')
+                
+                st.download_button(
+                    label="📥 Télécharger l'image avec le chemin",
+                    data=buf.getvalue(),
+                    file_name="chemin_superpose.png",
+                    mime="image/png"
+                )
             
-            # Bouton de téléchargement
-            result_pil = Image.fromarray(result_img)
-            buf = io.BytesIO()
-            result_pil.save(buf, format='PNG')
-            
-            st.download_button(
-                label="📥 Télécharger l'image avec le chemin",
-                data=buf.getvalue(),
-                file_name="chemin_superpose.png",
-                mime="image/png"
-            )
+            with col_instructions:
+                st.subheader("🧭 Instructions d'itinéraire")
+                
+                if hasattr(st.session_state, 'route_instructions'):
+                    # Afficher les instructions dans un conteneur stylé
+                    instructions_container = st.container()
+                    with instructions_container:
+                        for i, instruction in enumerate(st.session_state.route_instructions):
+                            if i == 0:  # Départ
+                                st.success(instruction)
+                            elif i == len(st.session_state.route_instructions) - 1:  # Arrivée
+                                st.success(instruction)
+                            else:  # Instructions intermédiaires
+                                st.info(instruction)
+                    
+                    # Résumé de l'itinéraire
+                    st.markdown("---")
+                    st.subheader("📋 Résumé")
+                    total_instructions = len(st.session_state.route_instructions) - 2  # Exclure départ et arrivée
+                    st.write(f"**Nombre de changements de direction :** {total_instructions}")
+                    
+                    # Bouton pour télécharger les instructions
+                    instructions_text = "\n".join([f"{i+1}. {inst}" for i, inst in enumerate(st.session_state.route_instructions)])
+                    st.download_button(
+                        label="📄 Télécharger les instructions",
+                        data=instructions_text,
+                        file_name="instructions_itineraire.txt",
+                        mime="text/plain"
+                    )
+                else:
+                    st.info("Recalculez l'itinéraire pour voir les instructions détaillées.")
         else:
             # Afficher l'image originale avec les points sélectionnés
             display_img = img_display.copy()
