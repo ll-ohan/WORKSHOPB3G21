@@ -1,19 +1,17 @@
-#!/usr/bin/env python3
-"""
-Script d'extraction des routes sur une carte
-Version automatisée : génère directement deux binaires (Otsu et Adaptive Mean)
-"""
-
 import cv2
 import numpy as np
 from skimage.filters import threshold_otsu
-import sys
 from pathlib import Path
 
 
 class RoadExtractor:
-    def __init__(self, image_path):
-        self.image_path = Path(image_path)
+    def __init__(self, image_source):
+        """
+        image_source : peut être soit
+          - un chemin (str ou Path)
+          - un objet bytes (image encodée, ex: JPEG/PNG en mémoire)
+        """
+        self.image_source = image_source
         self.original = None
         self.gray = None
 
@@ -29,12 +27,19 @@ class RoadExtractor:
         }
 
     def load_image(self):
-        if not self.image_path.exists():
-            raise FileNotFoundError(f"L'image {self.image_path} n'existe pas")
+        if isinstance(self.image_source, (str, Path)):
+            path = Path(self.image_source)
+            if not path.exists():
+                raise FileNotFoundError(f"L'image {path} n'existe pas")
+            self.original = cv2.imread(str(path))
+        elif isinstance(self.image_source, (bytes, bytearray)):
+            data = np.frombuffer(self.image_source, np.uint8)
+            self.original = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        else:
+            raise TypeError("image_source doit être un chemin (str/Path) ou des bytes")
 
-        self.original = cv2.imread(str(self.image_path))
         if self.original is None:
-            raise ValueError(f"Impossible de charger l'image {self.image_path}")
+            raise ValueError("Impossible de charger l'image (format non supporté ou corrompu)")
 
         self.gray = cv2.cvtColor(self.original, cv2.COLOR_BGR2GRAY)
         print(f"✓ Image chargée: {self.original.shape}")
@@ -63,12 +68,11 @@ class RoadExtractor:
         else:  # méthode manuelle
             _, binary = cv2.threshold(image, manual_thresh, 255, cv2.THRESH_BINARY)
 
-        # Inversion si l'image est trop claire
-        if np.mean(binary) > 127:
+        if np.mean(binary) > 127:  # inversion si trop clair
             binary = cv2.bitwise_not(binary)
         return binary
 
-    def process_and_save(self, method):
+    def process(self, method):
         denoised = self.denoise_image(self.gray, self.params['denoise_h'])
         morphed = self.morphology_operations(
             denoised,
@@ -76,7 +80,7 @@ class RoadExtractor:
             self.params['erosion_iterations'],
             self.params['dilation_iterations']
         )
-        binary = self.binarize_image(
+        return self.binarize_image(
             morphed,
             method,
             self.params['adaptive_block_size'],
@@ -84,29 +88,10 @@ class RoadExtractor:
             self.params['manual_threshold']
         )
 
-        output_bin = self.image_path.stem + f"_binary_method{method}.png"
-        cv2.imwrite(output_bin, binary)
-        print(f"✓ Binaire sauvegardé: {output_bin}")
-
     def run(self):
         self.load_image()
-        for method in [0, 1]:
-            self.process_and_save(method)
-
-
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: python road_extraction.py <chemin_image>")
-        sys.exit(1)
-
-    extractor = RoadExtractor(sys.argv[1])
-    try:
-        extractor.run()
+        results = {}
+        for method in [0, 1]:  # 0 = Otsu, 1 = Adaptive Mean
+            results[f"method_{method}"] = self.process(method)
         print("\n✓ Traitement terminé avec succès!")
-    except Exception as e:
-        print(f"\n❌ Erreur: {e}")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+        return results
