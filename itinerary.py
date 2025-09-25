@@ -4,6 +4,7 @@ from scipy.spatial import cKDTree
 from scipy.ndimage import label
 import heapq
 from math import hypot, sqrt
+from typing import Optional, Callable
 
 def barreRoute(mask, pts):
     """Barrer une route sur le masque"""
@@ -16,7 +17,7 @@ def barreRoute(mask, pts):
     else:
         return mask
 
-def findNearestRoutePoints(mask, points, k=200):
+def findNearestRoutePoints(mask, points, k=50):
     """Trouver les points de route les plus proches"""
     structure = np.ones((3, 3), dtype=np.int32)
     labeled, ncomponents = label(mask == 255, structure=structure)
@@ -32,8 +33,38 @@ def findNearestRoutePoints(mask, points, k=200):
         all_candidates.append(candidates)
     return all_candidates
 
-def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
-    """Calculer le chemin le plus court, avec lissage optionnel."""
+import math
+from PIL import Image
+import heapq
+import numpy as np
+from math import hypot, sqrt
+from typing import List, Tuple, Optional
+
+def computeShortestPath(
+    mask,
+    all_candidates,
+    smooth: bool = True,
+    epsilon: float = 3.0,
+    *,
+    # --- nouveautés pour le post-traitement "itinéraire" ---
+    scale_m_per_px: float = 1.0,
+    nav_angle_threshold_deg: float = 30.0,     # seuil d'angle en-dessous duquel on “redresse”
+    nav_min_segment_floor_m: float = 20.0,     # longueur mini absolue (m)
+    nav_min_segment_ratio: float = 0.15,       # ou 15% du plus long tronçon
+):
+    """
+    Calculer le chemin le plus court sur un masque binaire (255 = praticable).
+    Optionnel: lissage géométrique (string-pulling + RDP) et post-traitement
+    spécial pour la génération d'instructions (nav_path).
+
+    Returns
+    -------
+    (start, end, path)                          si return_nav_path=False
+    (start, end, path, nav_path)                si return_nav_path=True
+    where:
+      - path: chemin 4-connexe (dense) utilisable pour tracé/affichage
+      - nav_path: chemin “épuré pour instructions” (moins de points parasites)
+    """
     grid = (mask == 255).astype(np.uint8)
     height, width = grid.shape
 
@@ -52,35 +83,11 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
                     continue
                 if grid[ny, nx] == 0:
                     continue
-                # anti corner-cutting : si diagonal, les deux cases adjacentes doivent être libres
+                # anti corner-cutting : si diagonal, les deux cellules adjacentes doivent être libres
                 if dx != 0 and dy != 0:
                     if grid[y, x+dx] == 0 or grid[y+dy, x] == 0:
                         continue
                 yield nx, ny, dx, dy
-
-    # --- Rasterisation 4-connexe d'un segment (variant Bresenham) ---
-    def bresenham4(a, b):
-        x0, y0 = a
-        x1, y1 = b
-        dx = abs(x1 - x0)
-        dy = abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx - dy
-        x, y = x0, y0
-        yield (x, y)
-        while (x, y) != (x1, y1):
-            e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x += sx
-                yield (x, y)          # on émet l'étape horizontale/verticale
-            if (x, y) == (x1, y1):
-                break
-            if e2 < dx:
-                err += dx
-                y += sy
-                yield (x, y)          # on émet l'autre axe
 
     def densify_waypoints(waypoints, allow_diagonals=True):
         if len(waypoints) <= 1:
@@ -92,25 +99,19 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
             while (x, y) != (x1, y1):
                 dx = 0 if x1 == x else (1 if x1 > x else -1)
                 dy = 0 if y1 == y else (1 if y1 > y else -1)
-
-                # tente d'abord la diagonale (si autorisée et sans corner-cutting)
                 moved = False
                 if allow_diagonals and dx != 0 and dy != 0:
                     if grid[y, x+dx] and grid[y+dy, x]:  # anti coin
                         x += dx; y += dy; moved = True
-
-                # sinon, avance sur l’axe dominant
                 if not moved:
                     if abs(x1 - x) >= abs(y1 - y):
                         x += dx if dx != 0 else 0
                     else:
                         y += dy if dy != 0 else 0
-
                 out.append((x, y))
         return out
 
     def has_line_of_sight(a, b, allow_diagonals=True):
-        # On “densifie” virtuellement le segment et on vérifie chaque case
         x, y = a; x1, y1 = b
         while (x, y) != (x1, y1):
             dx = 0 if x1 == x else (1 if x1 > x else -1)
@@ -128,8 +129,6 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
                 return False
         return True
 
-
-    # --- Simplification par "shortcut" (string pulling sur grille) ---
     def visibility_shortcut(path):
         if len(path) <= 2:
             return path
@@ -138,7 +137,6 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
         while i < len(path) - 1:
             j = i + 1
             last_ok = j
-            # pousse j aussi loin que possible tant que la visibilité tient
             while j < len(path) and has_line_of_sight(path[i], path[j]):
                 last_ok = j
                 j += 1
@@ -146,7 +144,6 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
             i = last_ok
         return res
 
-    # --- RDP "obstacle-aware" : tolérance géo + check visibilité ---
     def rdp_los(points, eps):
         if len(points) < 3:
             return points
@@ -165,16 +162,13 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
             if i + 1 >= j:
                 return [points[i], points[j]]
             a = points[i]; b = points[j]
-            # point le plus éloigné du segment [a,b]
             idx, dmax = -1, -1.0
             for k in range(i + 1, j):
                 d = perp_dist(points[k], a, b)
                 if d > dmax:
                     dmax, idx = d, k
-            # si proche du segment ET visibilité ok -> garder [a,b]
             if dmax <= eps and has_line_of_sight(a, b):
                 return [a, b]
-            # sinon on découpe
             left = recurse(i, idx)
             right = recurse(idx, j)
             return left[:-1] + right
@@ -211,8 +205,9 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
         path.reverse()
         return path
 
+    # --- recherche d’un couple (start, end) valide ---
     found = False
-    path = []
+    path: List[Tuple[int, int]] = []
     for start in all_candidates[0]:
         for end in all_candidates[1]:
             start = tuple(map(int, start))
@@ -227,16 +222,67 @@ def computeShortestPath(mask, all_candidates, smooth=True, epsilon=3):
     if not found or not path:
         return None, None, []
 
-    # --- LISSAGE avant retour ---
+    # --- lissage “géométrique” (optionnel) ---
     if smooth:
-        # 1) on “tire la ficelle” (shortcut)
         waypoints = visibility_shortcut(path)
-        # 2) on simplifie encore si possible, en respectant obstacles
         waypoints = rdp_los(waypoints, eps=epsilon)
-        # 3) on re-densifie en chemin 4-connexe (cases adjacentes)
         path = densify_waypoints(waypoints)
 
-    return start, end, path
+    # --- post-traitement spécial “itinéraire textuel” ---
+    def _angle_deg(u, v) -> float:
+        nu = hypot(u[0], u[1]); nv = hypot(v[0], v[1])
+        if nu == 0 or nv == 0:
+            return 0.0
+        c = max(-1.0, min(1.0, (u[0]*v[0] + u[1]*v[1]) / (nu * nv)))
+        return math.degrees(math.acos(c))
+
+    def _smooth_nav_path_for_instructions(poly: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        if len(poly) <= 2:
+            return poly[:]
+
+        # seuil de fusion “court” en mètres
+        seg_lengths_px = [hypot(poly[i+1][0]-poly[i][0], poly[i+1][1]-poly[i][1]) for i in range(len(poly)-1)]
+        if not seg_lengths_px:
+            return poly[:]
+        Lmax_m = max(seg_lengths_px) * scale_m_per_px
+        Lmin_m = max(nav_min_segment_floor_m, nav_min_segment_ratio * Lmax_m)
+
+        pts: List[Tuple[int, int]] = [poly[0]]
+        i = 1
+        while i < len(poly) - 1:
+            a = pts[-1]; b = poly[i]; c = poly[i+1]
+            v1 = (b[0] - a[0], b[1] - a[1])
+            v2 = (c[0] - b[0], c[1] - b[1])
+            ang = _angle_deg(v1, v2)
+            short_middle = min(hypot(b[0]-a[0], b[1]-a[1]),
+                               hypot(c[0]-b[0], c[1]-b[1])) * scale_m_per_px < Lmin_m
+
+            # Si le “coude” est faible OU que le tronçon central est très court,
+            # et que la visibilité est OK, on saute le point b.
+            if has_line_of_sight(a, c) and (ang < nav_angle_threshold_deg or short_middle):
+                i += 1
+                continue
+
+            pts.append(b)
+            i += 1
+
+        pts.append(poly[-1])
+
+        # Passe 2 : enlève les quasi-colinéarités résiduelles sous 1°
+        j = 1
+        while j < len(pts) - 1:
+            a, b, c = pts[j-1], pts[j], pts[j+1]
+            v1 = (b[0]-a[0], b[1]-a[1]); v2 = (c[0]-b[0], c[1]-b[1])
+            if _angle_deg(v1, v2) < 1.0 and has_line_of_sight(a, c):
+                del pts[j]
+                continue
+            j += 1
+
+        return pts
+
+    nav_path = _smooth_nav_path_for_instructions(path)
+
+    return start, end, path, nav_path
 
 def drawPath(img, path, start, end):
     """Dessiner le chemin sur l'image"""
@@ -256,160 +302,134 @@ def drawPath(img, path, start, end):
     cv2.line(img_rgb, (end[0], end[1]), (end[0], end[1] + flag_size), (0,0,0), 2)
     return img_rgb
 
-def pixels_to_cm(length_pixels):
-    return length_pixels * 0.02646
+def get_image_dpi(path: str) -> float | None:
+    """
+    Retourne le DPI horizontal de l'image si disponible.
+    """
+    with Image.open(path) as img:
+        dpi = img.info.get("dpi")  # (dpi_x, dpi_y) si dispo
+        if dpi:
+            return dpi[0]  # on prend la valeur horizontale
+    raise Exception("DPI non disponible dans les métadonnées de l'image")
+
+def pixels_to_cm(length_pixels, dpi):
+    return (length_pixels / dpi) * 2.54
 
 import math
 from typing import List, Tuple
 
 Point = Tuple[int, int]
 
-
-def _dist(a: Point, b: Point) -> float:
-    return math.hypot(b[0] - a[0], b[1] - a[1])
-
-def _dot(u, v) -> float:
-    return u[0]*v[0] + u[1]*v[1]
-
-def _norm(u) -> float:
-    return math.hypot(u[0], u[1])
-
-def _angle_deg(a: Point, b: Point, c: Point) -> float:
-    # angle en B entre BA et BC
-    u = (a[0]-b[0], a[1]-b[1])
-    v = (c[0]-b[0], c[1]-b[1])
-    nu, nv = _norm(u), _norm(v)
-    if nu == 0 or nv == 0:
-        return 0.0
-    cosv = max(-1.0, min(1.0, _dot(u, v)/(nu*nv)))
-    return math.degrees(math.acos(cosv))
-
-def _point_seg_dist(p: Point, a: Point, c: Point) -> float:
-    # distance P -> segment [A,C]
-    ac = (c[0]-a[0], c[1]-a[1])
-    ap = (p[0]-a[0], p[1]-a[1])
-    ac2 = ac[0]*ac[0] + ac[1]*ac[1]
-    if ac2 == 0:
-        return _dist(p, a)
-    t = _dot(ap, ac) / ac2
-    t = max(0.0, min(1.0, t))
-    proj = (a[0] + t*ac[0], a[1] + t*ac[1])
-    return _dist(p, proj)
-
-def smooth_path_preserve_corners(
-    path: List[Point],
-    scale_m_per_px: float,
-    rel_threshold: float = 0.15,      # 15% de l_max
-    abs_threshold_m: float = 20.0,    # 20 m
-    straight_deg: float = 12.0,       # rectitude locale tolérée
-    curv_eps_m: float = 3.0,          # écart mini à la corde pour préserver l’arc
-    max_passes: int = 20              # sécurité pour éviter des boucles longues
-) -> List[Point]:
-    """
-    Supprime B si (AB < T OU BC < T) ET que B n’est ni un coin (angle > straight_deg),
-    ni porteur de courbure (distance B->AC > curv_eps_m).
-    """
-    n = len(path)
-    if n < 3:
-        return path[:]
-
-    pts = path[:]
-    px_per_m = 1.0 / max(scale_m_per_px, 1e-12)
-    curv_eps_px = curv_eps_m * px_per_m
-
-    for _ in range(max_passes):
-        if len(pts) < 3:
-            break
-
-        seg_lengths = [_dist(pts[i], pts[i+1]) for i in range(len(pts)-1)]
-        if not seg_lengths:
-            break
-        l_max = max(seg_lengths)
-        threshold_px = max(rel_threshold * l_max, abs_threshold_m * px_per_m)
-
-        changed = False
-        i = 1  # on préserve les extrémités
-        while i < len(pts) - 1:
-            A, B, C = pts[i-1], pts[i], pts[i+1]
-            AB = _dist(A, B)
-            BC = _dist(B, C)
-
-            # Garde-fous géométriques
-            ang = _angle_deg(A, B, C)           # angle au point B
-            d_perp = _point_seg_dist(B, A, C)   # courbure locale via écart à la corde
-
-            # règle de suppression : petite(s) arête(s) + quasi-rectiligne + faible courbure
-            if (AB < threshold_px or BC < threshold_px) and (ang <= straight_deg) and (d_perp <= curv_eps_px):
-                del pts[i]
-                changed = True
-                # ne pas incrémenter i pour réévaluer au même index
-            else:
-                i += 1
-
-        if not changed:
-            break
-
-    return pts
-
 # ---- Génération d'itinéraire inchangée, avec un hook de lissage par défaut ----
-def textual_itinerary(path: List[Point],
-                      scale_m_per_px: float,
-                      angle_threshold_deg: float = 30.0,
-                      smooth: bool = True,
-                      **smooth_kwargs) -> List[str]:
-    def dist(a, b) -> float:
-        return math.hypot(b[0] - a[0], b[1] - a[1])
 
-    def dot(u, v) -> float:
-        return u[0]*v[0] + u[1]*v[1]
+def textual_itinerary(
+    nav_path: List[Tuple[int, int]],
+    *,
+    scale_m_per_px: float,          # ⚠️ obligatoire: échelle carte (m par pixel)
+    angle_eps_deg: float = 10.0,     # en-dessous: "tout droit"
+    min_seg_m: float = 0.05,        # ignorer segments < 5 cm
+    use_cm_below_1m: bool = True,   # formater < 1 m en cm
+) -> str:
+    """
+    Génère des instructions textuelles à partir d'un nav_path.
+    Règles d'angle (u=i0->i1, v=i1->i2):
+      - 0°–45°   : "prendre le virage très serré à ..."
+      - 45°–135° : "tourner à ..."
+      - 135°–180°: "tourner légèrement à ..."
+    """
+    def normalize_path(nav_path: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """
+        Renvoie le chemin converti dans un repère cartésien (y vers le haut).
+        Détection automatique selon la majorité des mouvements.
+        """
+        ups, downs = 0, 0
+        for (x0, y0), (x1, y1) in zip(nav_path, nav_path[1:]):
+            dy = y1 - y0
+            if dy < 0:
+                ups += 1
+            elif dy > 0:
+                downs += 1
+        y_is_down = ups >= downs  # si "haut" correspond à dy<0 → repère image
 
-    def norm(u) -> float:
-        return math.hypot(u[0], u[1])
+        if y_is_down:
+            # convertir tous les points en inversant Y
+            return [(x, -y) for (x, y) in nav_path]
+        else:
+            return nav_path
 
-    def cross_z(u, v) -> float:
-        return u[0]*v[1] - u[1]*v[0]
+    
+    if not nav_path or len(nav_path) < 2:
+        return ""
+    
+    nav_path = normalize_path(nav_path)
+    # 1) dédoublonne les points consécutifs identiques
+    clean = [nav_path[0]]
+    for p in nav_path[1:]:
+        if p != clean[-1]:
+            clean.append(p)
+    nav_path = clean
+    if len(nav_path) < 2:
+        return ""
 
-    def angle_deg(u, v) -> float:
-        nu, nv = norm(u), norm(v)
+    def dist_m(a, b) -> float:
+        return math.hypot(b[0]-a[0], b[1]-a[1]) * scale_m_per_px
+
+    def fmt_distance(m: float) -> str:
+        if use_cm_below_1m and m < 1.0:
+            cm = int(round(m * 100))
+            return f"{cm} cm"
+        m_int = int(round(m))
+        if m_int == 0:
+            m_int = 1  # éviter "0 m", annoncer au moins 1 m
+        return f"{m_int} {'mètre' if m_int == 1 else 'mètres'}"
+
+    def angle_deg(u, v) -> Optional[float]:
+        ux, uy = u; vx, vy = v
+        nu = math.hypot(ux, uy); nv = math.hypot(vx, vy)
         if nu == 0 or nv == 0:
-            return 0.0
-        c = max(-1.0, min(1.0, dot(u, v) / (nu * nv)))
+            return None
+        c = max(-1.0, min(1.0, (ux*vx + uy*vy) / (nu*nv)))
         return math.degrees(math.acos(c))
+    
+    def turn_side(u, v) -> Optional[str]:
+        ux, uy = u; vx, vy = v
+        cross = ux*vy - uy*vx
+        if cross > 0: return "gauche"
+        if cross < 0: return "droite"
+        return None
+    
+    def classify_turn(ang: float) -> str:
+        if 0.0 <= ang < 45.0:
+            return "Tourner légèrement à"
+        elif 45.0 <= ang <= 135.0:
+            return "Tourner à"
+        else:  # 135–180
+            return "Prendre le virage très serré à"
 
-    def fmt_m(m: float) -> str:
-        return f"{m:.1f}"
+    instructions = []
 
-    if not path or len(path) < 2:
-        return []
+    # Étapes: "Avancer de d puis [tourner/continuer]"
+    for i in range(len(nav_path) - 2):
+        i0, i1, i2 = nav_path[i], nav_path[i+1], nav_path[i+2]
+        d = dist_m(i0, i1)
+        if d < min_seg_m:
+            # segment trop court -> on l'ignore (pas d'instruction "0 m")
+            continue
 
-    if smooth:
-        path = smooth_path_preserve_corners(path, scale_m_per_px, **smooth_kwargs)
-        if len(path) < 2:
-            return []
-
-    itinerary: List[str] = []
-    seg_len_px: float = 0.0
-
-    for i in range(1, len(path) - 1):
-        p_prev, p_cur, p_next = path[i-1], path[i], path[i+1]
-        seg_len_px += dist(p_prev, p_cur)
-
-        v1 = (p_cur[0] - p_prev[0], p_cur[1] - p_prev[1])
-        v2 = (p_next[0] - p_cur[0], p_next[1] - p_cur[1])
-
+        v1 = (i1[0]-i0[0], i1[1]-i0[1])
+        v2 = (i2[0]-i1[0], i2[1]-i1[1])
         ang = angle_deg(v1, v2)
-        if ang >= angle_threshold_deg:
-            seg_len_m = seg_len_px * scale_m_per_px
-            itinerary.append(f"avancer sur {fmt_m(seg_len_m)} m")
+        side = turn_side(v1, v2) if ang is not None else None
 
-            cz = cross_z(v1, v2)  # repère image (y vers le bas)
-            if cz > 0:
-                itinerary.append("tourner à droite")
-            elif cz < 0:
-                itinerary.append("tourner à gauche")
-            seg_len_px = 0.0
+        if ang is None or ang < angle_eps_deg or side is None:
+            instructions.append(f"Avancer de {fmt_distance(d)} puis continuer tout droit")
+        else:
+            action = classify_turn(ang)
+            instructions.append(f"Avancer de {fmt_distance(d)} puis {action} {side}")
 
-    seg_len_px += dist(path[-2], path[-1])
-    seg_len_m = seg_len_px * scale_m_per_px
-    itinerary.append(f"avancer sur {fmt_m(seg_len_m)} m")
-    return itinerary
+    # Dernier tronçon
+    last_d = dist_m(nav_path[-2], nav_path[-1])
+    if last_d >= min_seg_m:
+        instructions.append(f"Avancer de {fmt_distance(last_d)} avant destination")
+
+    return ". ".join(instructions) + "."
