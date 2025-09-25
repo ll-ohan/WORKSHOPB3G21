@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
 Script d'extraction des routes sur une carte
-Version automatisée : génère directement deux binaires (Otsu et Adaptive Mean)
+Version modifiée : retourne directement les binaires (Otsu et Adaptive Mean)
 """
 
 import cv2
 import numpy as np
 from skimage.filters import threshold_otsu
-import sys
 from pathlib import Path
 
 
@@ -68,7 +67,7 @@ class RoadExtractor:
             binary = cv2.bitwise_not(binary)
         return binary
 
-    def process_and_save(self, method):
+    def process(self, method):
         denoised = self.denoise_image(self.gray, self.params['denoise_h'])
         morphed = self.morphology_operations(
             denoised,
@@ -76,7 +75,7 @@ class RoadExtractor:
             self.params['erosion_iterations'],
             self.params['dilation_iterations']
         )
-        binary = self.binarize_image(
+        return self.binarize_image(
             morphed,
             method,
             self.params['adaptive_block_size'],
@@ -84,25 +83,28 @@ class RoadExtractor:
             self.params['manual_threshold']
         )
 
-        output_bin = self.image_path.stem + f"_binary_method{method}.png"
-        cv2.imwrite(output_bin, binary)
-        print(f"✓ Binaire sauvegardé: {output_bin}")
-
     def run(self):
         self.load_image()
-        for method in [0, 1]:
-            self.process_and_save(method)
+        results = {}
+        for method in [0, 1]:  # 0 = Otsu, 1 = Adaptive Mean
+            results[f"method_{method}"] = self.process(method)
+        print("\n✓ Traitement terminé avec succès!")
+        return results
 
 
 def main():
+    import sys
     if len(sys.argv) != 2:
         print("Usage: python road_extraction.py <chemin_image>")
         sys.exit(1)
 
     extractor = RoadExtractor(sys.argv[1])
     try:
-        extractor.run()
-        print("\n✓ Traitement terminé avec succès!")
+        results = extractor.run()
+        # Exemple d'affichage : dimensions des résultats
+        for k, img in results.items():
+            print(f"{k}: {img.shape}, dtype={img.dtype}")
+        return results
     except Exception as e:
         print(f"\n❌ Erreur: {e}")
         sys.exit(1)
