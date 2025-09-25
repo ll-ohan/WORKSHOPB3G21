@@ -12,7 +12,7 @@ from typing import Dict
 import shutil
 import uuid
 from map_mader import RoadExtractor
-from itinerary import findNearestRoutePoints, computeShortestPath, drawPath, pixels_to_cm, barreRoute
+from itinerary import findNearestRoutePoints, computeShortestPath, drawPath, pixels_to_cm, barreRoute, textual_itinerary
 
 DB_PATH = Path("data.db")
 DB_TABLE_NAME = "map_data"
@@ -449,12 +449,16 @@ async def itinerary_route(
         # Distance en mètres (pixels → cm → m) avec l'échelle
         length_pixels = len(path)
         length_cm = pixels_to_cm(length_pixels)
-        length_m = (length_cm / 100.0) * scale  # échelle appliquée
+        length_m = (length_cm) * scale  # échelle appliquée
+
+        scale_m_per_px = pixels_to_cm(1) * scale  # m par pixel
+        steps = textual_itinerary(path, scale_m_per_px)  # liste[str]
 
         return JSONResponse(content={
             "map_id": map_id,
             "distance_m": round(length_m, 2),
-            "image": encode_image_to_base64(img_path)
+            "image": encode_image_to_base64(img_path),
+            "itinerary": steps
         })
 
     except HTTPException:
