@@ -413,8 +413,15 @@ async def itinerary_route(
         #trouver candidats
         all_candidates = findNearestRoutePoints(mask, [start_pt, end_pt])
 
+        # Distance en mètres (pixels → cm → m) avec l'échelle
+        dpi = get_image_dpi(map_path)  #DPI de l'image
+        length_pixels = len(path)
+        length_cm = pixels_to_cm(length_pixels, dpi)
+        length_m = (length_cm) * scale
+        scale_m_per_px = pixels_to_cm(1, dpi) * scale  # m par pixel
+        
         #Calcul plus court chemin
-        start_real, end_real, path, nav_path = computeShortestPath(mask, all_candidates)
+        start_real, end_real, path, nav_path = computeShortestPath(mask, all_candidates, scale_m_per_px=scale_m_per_px)
         if not path:
             raise HTTPException(status_code=404, detail="Aucun chemin trouvé entre les deux points")
 
@@ -422,12 +429,7 @@ async def itinerary_route(
         img = cv2.imread(map_path)  # ouvrir
         img_path = drawPath(img, path, start_real, end_real)
 
-        # Distance en mètres (pixels → cm → m) avec l'échelle
-        dpi = get_image_dpi(map_path)  #DPI de l'image
-        length_pixels = len(path)
-        length_cm = pixels_to_cm(length_pixels, dpi)
-        length_m = (length_cm) * scale
-        scale_m_per_px = pixels_to_cm(1, dpi) * scale  # m par pixel
+        
         steps = textual_itinerary(nav_path, scale_m_per_px=scale_m_per_px)
         time_hours = length_m / 1000 / 6  # 6km/h à pied
         if time_hours < 1:
