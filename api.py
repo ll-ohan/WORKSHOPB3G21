@@ -83,8 +83,6 @@ async def cleanup_task():
 
         await asyncio.sleep(5*60)
 
-app = FastAPI(title="Batmap API", version="1.0")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -278,7 +276,6 @@ async def list_cities():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/map/list")
 async def list_maps(city: str):
