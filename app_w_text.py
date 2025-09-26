@@ -440,37 +440,37 @@ if original_file and mask_file:
                     mime="image/png"
                 )
             
-            with col_instructions:
-                st.subheader("🧭 Instructions d'itinéraire")
+        #     with col_instructions:
+        #         st.subheader("🧭 Instructions d'itinéraire")
                 
-                if hasattr(st.session_state, 'route_instructions'):
-                    # Afficher les instructions dans un conteneur stylé
-                    instructions_container = st.container()
-                    with instructions_container:
-                        for i, instruction in enumerate(st.session_state.route_instructions):
-                            if i == 0:  # Départ
-                                st.success(instruction)
-                            elif i == len(st.session_state.route_instructions) - 1:  # Arrivée
-                                st.success(instruction)
-                            else:  # Instructions intermédiaires
-                                st.info(instruction)
+        #         if hasattr(st.session_state, 'route_instructions'):
+        #             # Afficher les instructions dans un conteneur stylé
+        #             instructions_container = st.container()
+        #             with instructions_container:
+        #                 for i, instruction in enumerate(st.session_state.route_instructions):
+        #                     if i == 0:  # Départ
+        #                         st.success(instruction)
+        #                     elif i == len(st.session_state.route_instructions) - 1:  # Arrivée
+        #                         st.success(instruction)
+        #                     else:  # Instructions intermédiaires
+        #                         st.info(instruction)
                     
-                    # Résumé de l'itinéraire
-                    st.markdown("---")
-                    st.subheader("📋 Résumé")
-                    total_instructions = len(st.session_state.route_instructions) - 2  # Exclure départ et arrivée
-                    st.write(f"**Nombre de changements de direction :** {total_instructions}")
+        #             # Résumé de l'itinéraire
+        #             st.markdown("---")
+        #             st.subheader("📋 Résumé")
+        #             total_instructions = len(st.session_state.route_instructions) - 2  # Exclure départ et arrivée
+        #             st.write(f"**Nombre de changements de direction :** {total_instructions}")
                     
-                    # Bouton pour télécharger les instructions
-                    instructions_text = "\n".join([f"{i+1}. {inst}" for i, inst in enumerate(st.session_state.route_instructions)])
-                    st.download_button(
-                        label="📄 Télécharger les instructions",
-                        data=instructions_text,
-                        file_name="instructions_itineraire.txt",
-                        mime="text/plain"
-                    )
-                else:
-                    st.info("Recalculez l'itinéraire pour voir les instructions détaillées.")
+        #             # Bouton pour télécharger les instructions
+        #             instructions_text = "\n".join([f"{i+1}. {inst}" for i, inst in enumerate(st.session_state.route_instructions)])
+        #             st.download_button(
+        #                 label="📄 Télécharger les instructions",
+        #                 data=instructions_text,
+        #                 file_name="instructions_itineraire.txt",
+        #                 mime="text/plain"
+        #             )
+        #         else:
+        #             st.info("Recalculez l'itinéraire pour voir les instructions détaillées.")
         else:
             # Afficher l'image originale avec les points sélectionnés
             display_img = img_display.copy()
