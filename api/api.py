@@ -415,16 +415,16 @@ async def itinerary_route(
 
         # Distance en mètres (pixels → cm → m) avec l'échelle
         dpi = get_image_dpi(map_path)  #DPI de l'image
-        length_pixels = len(path)
-        length_cm = pixels_to_cm(length_pixels, dpi)
-        length_m = (length_cm) * scale
+        
         scale_m_per_px = pixels_to_cm(1, dpi) * scale  # m par pixel
         
         #Calcul plus court chemin
         start_real, end_real, path, nav_path = computeShortestPath(mask, all_candidates, scale_m_per_px=scale_m_per_px)
         if not path:
             raise HTTPException(status_code=404, detail="Aucun chemin trouvé entre les deux points")
-
+        length_pixels = len(path)
+        length_cm = pixels_to_cm(length_pixels, dpi)
+        length_m = (length_cm) * scale
         #Dessiner chemin sur map
         img = cv2.imread(map_path)  # ouvrir
         img_path = drawPath(img, path, start_real, end_real)
