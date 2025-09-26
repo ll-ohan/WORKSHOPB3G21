@@ -89,4 +89,4 @@ Remarques : map_id représente l'échelle, start le point de départ et end le p
 ## Remarques
 Vous trouverez le guide utilisateur final (cas du projet fini) :
 - au format WORD dans le google drive du projet
-- dans le fichier Fibal_guide.md à la racine du dossier
+- dans le fichier Final_guide.md à la racine du dossier
