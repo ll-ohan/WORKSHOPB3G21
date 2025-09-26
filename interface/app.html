@@ -16,85 +16,75 @@
 </header>
 
 <main id="app">
-
-  <!-- Vue : Utiliser une carte -->
+  <!-- Utiliser une carte -->
   <section id="view-use" class="view">
     <div class="toolbar">
       <label for="citySelect">Ville</label>
       <select id="citySelect" aria-label="Sélection de la ville"></select>
       <button id="refreshCity" class="ghost" type="button">↻</button>
     </div>
-
     <div id="emptyStateUse" class="empty hidden">
       <p>Pas encore de cartes. Ajoute-en une dans l’onglet <strong>Nouvelle carte</strong> ✨</p>
     </div>
-
     <div id="mapsGrid" class="grid"></div>
   </section>
 
-  <!-- Vue : Nouvelle carte (2 formulaires) -->
+  <!-- Nouvelle carte (wizard 2 formulaires, sans reload ni redirection auto) -->
   <section id="view-new" class="view hidden">
-
-    <!-- Formulaire 1 : Upload + paramètres -->
+    <!-- Formulaire 1 : upload + paramètres -->
     <form id="formUpload" class="panel" novalidate>
-      <h2>Ajouter une nouvelle carte</h2>
+      <h2>1) Upload image + paramètres</h2>
       <div class="field">
-        <label for="cityInput">Ville</label>
-        <input id="cityInput" name="city" type="text" placeholder="Ex. Toulouse" required />
+        <label for="fileInput">Image (PNG/JPG)</label>
+        <input id="fileInput" name="file" type="file" accept="image/*" required />
       </div>
       <div class="field">
         <label for="scaleInput">Échelle (mètre par cm sur plan)</label>
         <input id="scaleInput" name="scale" type="number" step="0.0001" min="0" placeholder="Ex. 12.5" required />
-        <small class="hint">Utilisée avec le DPI pour convertir les pixels en mètres.</small>
       </div>
       <div class="field">
-        <label for="fileInput">Image de la carte (PNG/JPG)</label>
-        <input id="fileInput" name="file" type="file" accept="image/*" required />
+        <label for="cityInput">Ville</label>
+        <input id="cityInput" name="city" type="text" placeholder="Ex. Toulouse" required />
       </div>
-
       <div class="actions">
-        <button type="submit" id="btnUpload" class="primary">Lancer l’extraction des routes</button>
+        <button type="submit" id="btnUpload" class="primary">Envoyer</button>
       </div>
     </form>
 
-    <!-- Formulaire 2 : Validation du binaire -->
+    <!-- Formulaire 2 : choix binaire + validation -->
     <form id="formConfirm" class="panel hidden" novalidate>
-      <h2>Choisir la version binaire</h2>
+      <h2>2) Choisir la version binaire</h2>
       <p class="hint">Sélectionne une des images extraites ci-dessous, puis valide.</p>
       <div id="binaryChoices" class="grid bin-grid" aria-live="polite"></div>
-
       <div class="actions">
         <button type="submit" id="btnConfirm" class="primary" disabled>Valider et enregistrer</button>
         <button type="button" id="btnBack" class="ghost">⟵ Retour</button>
+        <button type="button" id="btnOpenSaved" class="ghost hidden">Ouvrir la carte créée</button>
       </div>
     </form>
 
     <div class="small-note">
-      <p><strong>Astuce :</strong> après validation, on te redirige automatiquement vers “Utiliser une carte”.</p>
+      <p><strong>Note :</strong> aucune redirection automatique n’est effectuée ; tu restes sur cet onglet.</p>
     </div>
   </section>
 
-  <!-- Vue : Détail carte -->
+  <!-- Détail carte -->
   <section id="view-detail" class="view hidden">
     <div class="detail-header">
       <button id="backToList" class="ghost" type="button">← Retour</button>
       <h2 id="detailTitle">Carte</h2>
     </div>
-
     <div class="detail-body">
       <div class="canvas-wrap">
         <img id="mapImage" alt="Carte" />
         <canvas id="clickLayer" aria-label="Sélection de points"></canvas>
       </div>
-
       <div class="panel">
         <h3>Points & actions</h3>
-
         <div class="mode-switch">
           <label><input type="radio" name="pickMode" value="route" checked /> Sélection pour Trajet</label>
           <label><input type="radio" name="pickMode" value="block" /> Sélection pour Barrer une route</label>
         </div>
-
         <div class="coords">
           <div>
             <strong>Trajet</strong>
@@ -107,13 +97,11 @@
             <div class="coord-row"><span>Point B :</span><code id="blockEnd">(clic…)</code></div>
           </div>
         </div>
-
         <div class="actions">
           <button id="btnRoute" class="primary" type="button">Trajet</button>
           <button id="btnBlock" class="warn" type="button">Barrer une route</button>
           <button id="btnReset" class="ghost" type="button">Utiliser la carte originale</button>
         </div>
-
         <div id="routeMeta" class="meta hidden"></div>
       </div>
     </div>
@@ -125,11 +113,9 @@
       <ol id="itineraryList"></ol>
     </div>
   </section>
-
 </main>
 
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-
 <script src="script.js"></script>
 </body>
 </html>
