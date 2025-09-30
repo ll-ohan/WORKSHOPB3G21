@@ -1,6 +1,6 @@
 "use strict";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "http://localhost:8000"; // A remplacer par window.BATMAP_API_BASE
 /**
  * Récupère les villes et peuple le <select>.
  */

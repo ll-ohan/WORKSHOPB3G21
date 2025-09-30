@@ -1,6 +1,6 @@
 "use strict";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.BATMAP_API_BASE;
 
 let uploadedFile = null;
 let chosenBinPath = null;
