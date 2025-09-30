@@ -1,5 +1,4 @@
 .venv
+.vscode
 .DS_Store
-data.db
-map_store
 __pycache__

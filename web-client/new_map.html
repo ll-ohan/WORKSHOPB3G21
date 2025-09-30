@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Batmap - Cartes intelligentes</title>
+  <title>Batmap - Nouvelle carte</title>
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
 
@@ -23,51 +23,68 @@
   </header>
 
   <main class="main-content">
-    <section class="city-select">
-      <svg class="select-corner tl" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="0.5" x2="40" y2="0.5" stroke="#FF1744" stroke-opacity="0.3" />
-        <line x1="9.5" y1="31" x2="9.5" y2="1" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <svg class="select-corner bl" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="-0.5" x2="40" y2="-0.5" transform="matrix(1 0 0 -1 0 30)" stroke="#FF1744" stroke-opacity="0.3" />
-        <line y1="-0.5" x2="30" y2="-0.5" transform="matrix(0 1 1 0 10 0)" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <svg class="select-corner tr" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="-0.5" x2="40" y2="-0.5" transform="matrix(-1 0 0 1 40 1)" stroke="#FF1744" stroke-opacity="0.3" />
-        <line y1="-0.5" x2="30" y2="-0.5" transform="matrix(0 -1 -1 0 30 31)" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <svg class="select-corner br" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line x1="40" y1="30.5" y2="30.5" stroke="#FF1744" stroke-opacity="0.3" />
-        <line x1="30.5" x2="30.5" y2="30" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <select id="city-dropdown">
-        <option value="">SÉLECTIONNER UNE VILLE</option>
-      </select>
-    </section>
+    <h2 class="form-title">NOUVELLE CARTE</h2>
+    <form id="new-map-form" enctype="multipart/form-data">
+      <div class="form-group map">
+        <div class="file-upload" id="file-upload">
+          <p id="file-text">AJOUTER</p>
+          <img id="file-preview" alt="Aperçu de la carte" style="display:none;">
+        </div>
+        <label for="map-file">CARTE</label>
+        <input type="file" id="map-file" name="file" accept=".png,.jpg,.jpeg,.tiff" required hidden>
+      </div>
+      <div class="form-section">
+        <div class="form-group city">
+          <label for="cities-list" class="fake-placeholder">VILLE</label>
+          <input list="cities-list" id="city" name="city" required>
+          <datalist id="cities-list"></datalist>
+        </div>
+        <div class="form-group scale">
+          <div class="scale-inputs">
+            <input type="number" id="scale-left" value="1" min="0.0001" step="0.0001" required>
+            <select id="scale-left-unit">
+              <option value="mm">mm</option>
+              <option value="cm" selected>cm</option>
+              <option value="m">m</option>
+              <option value="inch">inch</option>
+              <option value="pouce">pouce</option>
+              <option value="px">pixel</option>
+            </select>
+          </div>
+          <span>=</span>
+          <div class="scale-inputs">
+            <input type="number" id="scale-right" value="100" min="0.0001" step="0.0001" required>
+            <select id="scale-right-unit">
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="m" selected>m</option>
+              <option value="km">km</option>
+              <option value="mile">mile</option>
+              <option value="nm">nm</option>
+            </select>
+          </div>
+          <p id="scale-preview"></p>
+          <label for="scale">ÉCHELLE</label>
 
-    <section class="map-gallery" id="map-gallery">
-      <!-- Les cartes apparaîtront ici -->
+        </div>
+      </div>
+
+      <button type="submit" class="btn" id="btn-upload">Uploader la carte</button>
+    </form>
+
+    <section id="preview" style="display:none;">
+      <h3>CHOISISSEZ LA CARTE LA PLUS CLAIRE ET PRÉCISE :</h3>
+      <div id="bin-options" class="map-gallery"></div>
+      <button id="btn-finalize" class="btn" disabled>Finaliser la carte</button>
     </section>
   </main>
-
-  <svg class="footer-separator" width="100%" heigth="auto" viewBox="0 0 601 20" fill="none"
-    xmlns="http://www.w3.org/2000/svg">
-    <line y1="10" x2="210" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="221" y1="10" x2="241" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="256" y1="10" x2="276" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="291" y1="10" x2="311" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="326" y1="10" x2="346" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="361" y1="10" x2="381" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="391" y1="10" x2="601" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-  </svg>
-
 
   <footer class="footer">
     <p>&copy; 2025 Batmap. Tous droits réservés.</p>
   </footer>
 
-  <script src="assets/js/api-base.js" type="application/javascript"></script>
-  <script src="assets/js/select_map.js" type="application/javascript"></script>
+  <script src="assets/js/api-base.js" defer></script>
+  <script src="assets/js/new_map.js" defer></script>
 </body>
 
 </html>

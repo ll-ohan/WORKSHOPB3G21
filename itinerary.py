@@ -7,16 +7,26 @@ from math import hypot, sqrt
 from PIL import Image
 from typing import List, Tuple, Optional
 
+
+ROUTE_COLOR_BGR = (225, 220, 142)  # hex #8EDCE1
+START_MARKER_COLOR_BGR = ROUTE_COLOR_BGR
+END_MARKER_COLOR_BGR = (69, 23, 255)  # hex #ff1745
+MARKER_BORDER_COLOR_BGR = (255, 255, 255)
+MARKER_RADIUS_PX = 10
+MARKER_BORDER_WIDTH_PX = 3
+ROUTE_THICKNESS_PX = 5
+
 def barreRoute(mask, pts):
-    """Barrer une route sur le masque (image binaire)"""
+    """Ajoute une barrière rouge semi-transparente sur le mask RGBA"""
     if len(pts) == 2:
-        x1, y1 = map(int, pts[0]) #pts est une liste de deux tuples (x,y)
+        x1, y1 = map(int, pts[0])
         x2, y2 = map(int, pts[1])
-        mask_barr = mask.copy() #copie du masque pour ne pas agir directement sur l'objet
-        cv2.line(mask_barr, (x1, y1), (x2, y2), 0, thickness=8) #ligne noire épaisse aux coordonnées extraites
+        mask_barr = mask.copy()
+
+        # rouge Batmap opaque (B=69, G=23, R=255, A=255)
+        cv2.line(mask_barr, (x1, y1), (x2, y2), (69, 23, 255, 255), thickness=8)
         return mask_barr
-    else:
-        return mask
+    return mask
 
 def findNearestRoutePoints(mask, points, k=50):
     """Trouver les points de route les plus proches (= pixels blancs)"""
@@ -266,13 +276,51 @@ def computeShortestPath(
 
 def drawPath(img, path, start, end):
     """Dessiner le chemin sur l'image"""
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    for (x, y) in path:
-        cv2.circle(img_rgb, (x, y), 1, (255,0,0), -1) #points du chemin en bleu
-    cv2.circle(img_rgb, start, 4, (0,255,0), -1) #point de départ en vert
-    
-    cv2.circle(img_rgb, end, 4, (255,0,0), -1) # point d'arrivée en rouge
-    return img_rgb
+    img_bgr = img.copy()
+
+    if path:
+        points = np.array(path, dtype=np.int32).reshape((-1, 1, 2))
+        if len(points) > 1:
+            cv2.polylines(
+                img_bgr,
+                [points],
+                isClosed=False,
+                color=ROUTE_COLOR_BGR,
+                thickness=ROUTE_THICKNESS_PX,
+                lineType=cv2.LINE_AA,
+            )
+        else:
+            cv2.circle(
+                img_bgr,
+                tuple(points[0][0]),
+                MARKER_RADIUS_PX // 2,
+                ROUTE_COLOR_BGR,
+                thickness=-1,
+                lineType=cv2.LINE_AA,
+            )
+
+    def draw_marker(center, fill_color):
+        cv2.circle(
+            img_bgr,
+            center,
+            MARKER_RADIUS_PX,
+            fill_color,
+            thickness=-1,
+            lineType=cv2.LINE_AA,
+        )
+        cv2.circle(
+            img_bgr,
+            center,
+            MARKER_RADIUS_PX,
+            MARKER_BORDER_COLOR_BGR,
+            thickness=MARKER_BORDER_WIDTH_PX,
+            lineType=cv2.LINE_AA,
+        )
+
+    draw_marker(start, START_MARKER_COLOR_BGR)
+    draw_marker(end, END_MARKER_COLOR_BGR)
+
+    return img_bgr
 
 def get_image_dpi(path: str) -> float | None:
     """
@@ -378,7 +426,23 @@ def textual_itinerary(
         side = turn_side(v1, v2) if ang is not None else None
 
         if ang is None or ang < angle_eps_deg or side is None:
-            instructions.append(f"Avancer de {fmt_distance(d)} puis continuer tout droit")
+            # On cherche à "fusionner" les segments tout droit
+            j = i + 2
+            total_d = d
+            v_ref = v1
+            while j < len(nav_path) - 1:
+                v_next = (nav_path[j+1][0] - i1[0], nav_path[j+1][1] - i1[1])
+                ang_next = angle_deg(v_ref, v_next)
+                side_next = turn_side(v_ref, v_next) if ang_next is not None else None
+                d_next = dist_m(nav_path[j], nav_path[j+1])
+                if ang_next is None or ang_next < angle_eps_deg or side_next is None:
+                    total_d += d_next
+                    j += 1
+                else:
+                    break
+            action = classify_turn(ang)
+            instructions.append(f"Avancer de {fmt_distance(total_d)} puis {action} {side_next}")
+            i = j - 2
         else:
             action = classify_turn(ang)
             instructions.append(f"Avancer de {fmt_distance(d)} puis {action} {side}")

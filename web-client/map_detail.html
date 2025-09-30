@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Batmap - Cartes intelligentes</title>
+  <title>Batmap - Détail carte</title>
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
 
@@ -23,51 +23,94 @@
   </header>
 
   <main class="main-content">
-    <section class="city-select">
-      <svg class="select-corner tl" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="0.5" x2="40" y2="0.5" stroke="#FF1744" stroke-opacity="0.3" />
-        <line x1="9.5" y1="31" x2="9.5" y2="1" stroke="#FF1744" stroke-opacity="0.3" />
+    <section class="map-info">
+      <svg width="100%" viewBox="0 0 352 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="347" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="337" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="327" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="317" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="307" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="297" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="287" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="277" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="267" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="257" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="247" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="237" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="227" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="217" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="207" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="197" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="187" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="177" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="167" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="157" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="147" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="137" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="127" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="117" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="107" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="97" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="87" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="77" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="67" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="57" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="47" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="37" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="27" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="18" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect x="9" width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
+        <rect width="5" height="25" fill="#FF1744" fill-opacity="0.15" />
       </svg>
-      <svg class="select-corner bl" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="-0.5" x2="40" y2="-0.5" transform="matrix(1 0 0 -1 0 30)" stroke="#FF1744" stroke-opacity="0.3" />
-        <line y1="-0.5" x2="30" y2="-0.5" transform="matrix(0 1 1 0 10 0)" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <svg class="select-corner tr" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line y1="-0.5" x2="40" y2="-0.5" transform="matrix(-1 0 0 1 40 1)" stroke="#FF1744" stroke-opacity="0.3" />
-        <line y1="-0.5" x2="30" y2="-0.5" transform="matrix(0 -1 -1 0 30 31)" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <svg class="select-corner br" viewBox="0 0 40 31" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line x1="40" y1="30.5" y2="30.5" stroke="#FF1744" stroke-opacity="0.3" />
-        <line x1="30.5" x2="30.5" y2="30" stroke="#FF1744" stroke-opacity="0.3" />
-      </svg>
-      <select id="city-dropdown">
-        <option value="">SÉLECTIONNER UNE VILLE</option>
-      </select>
+      <div class="art-sep"></div>
+      <div>
+        <h2 id="map-city"></h2>
+        <p><span id="map-scale"></p>
+      </div>
     </section>
 
-    <section class="map-gallery" id="map-gallery">
-      <!-- Les cartes apparaîtront ici -->
+    <section class="map-container">
+      <div class="controls top">
+        <button id="btn-calc" class="btn" disabled>CALCULER L’ITINÉRAIRE</button>
+        <button id="btn-toggle-itinerary" class="btn" disabled>AFFICHER L’ITINÉRAIRE</button>
+      </div>
+      <div class="info">
+        <p><span id="distance"></span></p>
+        <p><span id="time"></span></p>
+      </div>
+      <div class="map-flip-card" id="map-flip-card">
+        <div class="map-flip-card-inner" id="map-flip-card-inner">
+          <div class="map-face map-front">
+            <canvas id="map-canvas"></canvas>
+          </div>
+          <div class="map-face map-back">
+            <section class="results hidden" id="results">
+              <div class="results-glass">
+                <div id="itinerary-steps"></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+      <div class="controls bottom">
+        <button id="btn-reset" class="btn">RÉINITIALISER</button>
+        <button id="btn-swap" class="btn">INVERSER LES POINTS</button>
+        <button id="btn-add-obstacle" class="btn">AJOUTER UN OBSTACLE</button>
+        <div class="obstacle-actions" id="obstacle-actions">
+          <button id="btn-validate-obstacle" class="btn">&#10003;</button>
+          <button id="btn-cancel-obstacle" class="btn">&#10007;</button>
+        </div>
+        <button id="btn-reset-obstacles" class="btn">RÉINITIALISER LES OBSTACLES</button>
+      </div>
     </section>
   </main>
-
-  <svg class="footer-separator" width="100%" heigth="auto" viewBox="0 0 601 20" fill="none"
-    xmlns="http://www.w3.org/2000/svg">
-    <line y1="10" x2="210" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="221" y1="10" x2="241" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="256" y1="10" x2="276" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="291" y1="10" x2="311" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="326" y1="10" x2="346" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="361" y1="10" x2="381" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-    <line x1="391" y1="10" x2="601" y2="10" stroke="#FF1744" stroke-opacity="0.15" stroke-width="20" />
-  </svg>
-
 
   <footer class="footer">
     <p>&copy; 2025 Batmap. Tous droits réservés.</p>
   </footer>
 
-  <script src="assets/js/api-base.js" type="application/javascript"></script>
-  <script src="assets/js/select_map.js" type="application/javascript"></script>
+  <script src="assets/js/api-base.js"></script>
+  <script src="assets/js/map_detail.js"></script>
 </body>
 
 </html>

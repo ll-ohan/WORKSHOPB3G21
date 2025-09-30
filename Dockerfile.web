@@ -1,0 +1,14 @@
+FROM nginx:1.27-alpine
+
+ENV API_PROXY_PASS=http://api:8000/
+
+COPY docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY docker/nginx/entrypoint.sh /docker-entrypoint.d/10-configure.sh
+
+RUN apk add --no-cache gettext \
+    && chmod +x /docker-entrypoint.d/10-configure.sh
+
+# Copy the front-end assets
+COPY web-client /usr/share/nginx/html
+
+EXPOSE 80

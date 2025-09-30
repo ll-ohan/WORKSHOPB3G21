@@ -15,6 +15,7 @@ from map_mader import RoadExtractor
 from itinerary import findNearestRoutePoints, computeShortestPath, drawPath, pixels_to_cm, barreRoute, textual_itinerary, get_image_dpi
 import asyncio
 import datetime
+import math
 
 DB_PATH = Path("data.db")
 DB_TABLE_NAME = "map_data"
@@ -43,7 +44,7 @@ def init_db():
 
 def init_dirs():
     """Crée l’arborescence map_store/ si elle n’existe pas."""
-    subdirs = ["temp", "color", "bin"]
+    subdirs = ["temp", "color", "bin", "mask"]
     for sub in subdirs:
         path = Path("map_store") / sub
         path.mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,20 @@ async def cleanup_task():
 
         await asyncio.sleep(5*60)
 
+def ensure_rgba(img):
+    """Force une image à être RGBA (ajoute canal alpha si besoin)."""
+    if img is None:
+        return None
+    if len(img.shape) == 2:  # grayscale
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+    elif img.shape[2] == 3:  # BGR → BGRA
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+    elif img.shape[2] == 4:  # déjà OK
+        pass
+    else:
+        raise ValueError("Format image inattendu")
+    return img
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -117,6 +132,37 @@ def encode_image_to_base64(img) -> str:
     return base64.b64encode(buffer).decode("utf-8")
 
 
+def compute_path_length_m(path, scale_m_per_px):
+    """Calcule la longueur réelle d'un chemin discret en mètres."""
+    if not path or len(path) < 2:
+        return 0.0
+    total_px = 0.0
+    for (x0, y0), (x1, y1) in zip(path, path[1:]):
+        total_px += math.hypot(x1 - x0, y1 - y0)
+    return total_px * scale_m_per_px
+
+
+def format_walking_time(length_m, speed_m_s=1.4):
+    """Retourne une estimation de durée de marche à vitesse constante."""
+    if length_m <= 0:
+        return "1 min"
+
+    total_minutes = length_m / speed_m_s / 60
+    if total_minutes < 1:
+        return "1 min"
+
+    hours = int(total_minutes // 60)
+    minutes = int(round(total_minutes % 60))
+
+    if minutes == 60:
+        hours += 1
+        minutes = 0
+
+    if hours:
+        return f"{hours}h" if minutes == 0 else f"{hours}h {minutes:02d} min"
+    return f"{minutes} min"
+
+
 @app.post("/map/binaryse")
 async def binaryse(
     file: UploadFile = File(...),
@@ -135,6 +181,13 @@ async def binaryse(
         original_path = temp_dir / f"original_{file.filename}"
         with open(original_path, "wb") as f:
             f.write(contents)
+            dpi = get_image_dpi(original_path)
+            if dpi is None:
+                original_path.unlink()
+                raise HTTPException(status_code=400, detail="DPI introuvable dans l'image. Assurez-vous que l'image contient des informations DPI valides.")
+            
+
+
 
         #Exec du traitement
         extractor = RoadExtractor(contents)
@@ -169,6 +222,8 @@ async def binaryse(
             "scale": scale,
             "results": result_files
         })
+    except HTTPException:
+        raise
 
     except Exception as e:
         print(f"Erreur: {e}")
@@ -181,27 +236,20 @@ async def add_map(
     city: str = Form(...),
     scale: float = Form(...)
 ):
-    """
-    Finalise une carte en sauvegardant +  met à jour la DB avec les nouveaux chemins.
-    """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        #cherche entrée
         cursor.execute(f"""
             SELECT id, map, temp_bin_1, temp_bin_2
             FROM {DB_TABLE_NAME} WHERE map = ? AND city = ? AND scale = ?
         """, (map, city, scale))
         row = cursor.fetchone()
-
         if not row:
             conn.close()
-            raise HTTPException(status_code=404, detail="Entrée non trouvée dans la base") #souleve erreur si non trouvé
+            raise HTTPException(status_code=404, detail="Entrée non trouvée dans la base")
 
         entry_id, original_path, temp1, temp2 = row
-
-        #Vérifie existence fichiers
         orig_file = Path(original_path)
         chosen_file = Path(map_choosen)
         if not orig_file.exists():
@@ -211,28 +259,32 @@ async def add_map(
             conn.close()
             raise HTTPException(status_code=404, detail=f"Fichier binaire choisi introuvable: {chosen_file}")
 
-        uid = uuid.uuid4().hex[:8] #id unique
+        uid = uuid.uuid4().hex[:8]
         new_orig_path = Path("map_store/color") / f"map_{uid}.png"
         new_bin_path = Path("map_store/bin") / f"bin_{uid}.png"
+        new_mask_path = Path("map_store/mask") / f"mask_{uid}.png"
 
-        #Déplacement fichiers
         shutil.move(str(orig_file), new_orig_path)
         shutil.move(str(chosen_file), new_bin_path)
 
-        #supprimer fichier non choisis
         for temp_file in [temp1, temp2]:
             if temp_file and Path(temp_file) != chosen_file:
                 try:
                     Path(temp_file).unlink()
                 except FileNotFoundError:
-                    pass  #si déja supprimé
+                    pass
 
-        # maj DB
+        # Créer mask transparent de même taille que new_orig_path
+        img_ref = cv2.imread(str(new_orig_path))
+        h, w = img_ref.shape[:2]
+        mask_empty = np.zeros((h, w, 4), dtype=np.uint8)  # RGBA transparent
+        cv2.imwrite(str(new_mask_path), mask_empty)
+
         cursor.execute(f"""
             UPDATE {DB_TABLE_NAME}
             SET map = ?, original_bin = ?, use_bin = ?, temp_bin_1 = NULL, temp_bin_2 = NULL
             WHERE id = ?
-        """, (str(new_orig_path), str(new_bin_path), str(new_bin_path), entry_id))
+        """, (str(new_orig_path), str(new_bin_path), str(new_mask_path), entry_id))
 
         conn.commit()
         conn.close()
@@ -241,11 +293,10 @@ async def add_map(
             "id": entry_id,
             "map": str(new_orig_path),
             "original_bin": str(new_bin_path),
-            "use_bin": str(new_bin_path),
+            "use_bin": str(new_mask_path),
             "city": city,
             "scale": scale
         })
-
     except HTTPException:
         raise
     except Exception as e:
@@ -341,15 +392,16 @@ async def get_map(map_id: int):
         entry_id, map_path, use_bin_path, city, scale, created_at = row
 
         map_b64 = None
-        bin_b64 = None
 
         if map_path and Path(map_path).exists():
             img = cv2.imread(map_path)
+            mask_rgba = cv2.imread(use_bin_path, cv2.IMREAD_UNCHANGED)
+            mask_rgba = ensure_rgba(mask_rgba)
+            if mask_rgba is not None:
+                alpha = mask_rgba[:,:,3] / 255.0
+                for c in range(3):
+                    img[:,:,c] = (1-alpha) * img[:,:,c] + alpha * mask_rgba[:,:,c]
             map_b64 = encode_image_to_base64(img)
-
-        if use_bin_path and Path(use_bin_path).exists():
-            img = cv2.imread(use_bin_path)
-            bin_b64 = encode_image_to_base64(img)
 
         return JSONResponse(content={
             "id": entry_id,
@@ -357,14 +409,13 @@ async def get_map(map_id: int):
             "scale": scale,
             "created_at": created_at,
             "map": map_b64,
-            "use_bin": bin_b64
         })
 
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Erreur: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/itinerary/route")
 async def itinerary_route(
@@ -387,7 +438,7 @@ async def itinerary_route(
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(f"""
-            SELECT map, use_bin, scale
+            SELECT map, original_bin, use_bin, scale
             FROM {DB_TABLE_NAME}
             WHERE id = ?
         """, (map_id,))
@@ -396,14 +447,24 @@ async def itinerary_route(
 
         if not row:
             raise HTTPException(status_code=404, detail="Carte introuvable")
-        map_path, use_bin_path, scale = row
+        map_path, original_bin_path, use_bin_path, scale = row
 
         if not Path(use_bin_path).exists():
             raise HTTPException(status_code=404, detail=f"Fichier binaire introuvable: {use_bin_path}")
 
         #chargement du masque binaire
-        mask = cv2.imread(use_bin_path, cv2.IMREAD_GRAYSCALE)
-        _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+        try:
+            mask_rgba = cv2.imread(use_bin_path, cv2.IMREAD_UNCHANGED)
+            mask_rgba = ensure_rgba(mask_rgba)
+            violet_mask = np.zeros(mask_rgba.shape[:2], dtype=np.uint8)
+            if mask_rgba is not None and mask_rgba.shape[2] == 4:
+                violet_mask[np.where((mask_rgba[:,:,0]==255) & (mask_rgba[:,:,2]==255))] = 0  # noir
+                violet_mask[np.where((mask_rgba[:,:,0]==0) & (mask_rgba[:,:,1]==0) & (mask_rgba[:,:,2]==0) & (mask_rgba[:,:,3]==0))] = 255  # blanc ailleurs
+            orig_bin = cv2.imread(original_bin_path, cv2.IMREAD_GRAYSCALE)
+            _, orig_bin = cv2.threshold(orig_bin, 127, 255, cv2.THRESH_BINARY)
+            mask = cv2.bitwise_and(orig_bin, violet_mask)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Erreur lors de l'utilisation d'obstacles. Veuillez réinitialiser les obstacles.")
         if mask is None:
             raise HTTPException(status_code=500, detail="Impossible de charger le masque binaire")
 
@@ -412,10 +473,7 @@ async def itinerary_route(
 
         # Distance en mètres (pixels → cm → m) avec l'échelle
         dpi = get_image_dpi(map_path)  #DPI de l'image
-        length_pixels = len(path)
-        length_cm = pixels_to_cm(length_pixels, dpi)
-        length_m = (length_cm) * scale
-        scale_m_per_px = pixels_to_cm(1, dpi) * scale  # m par pixel
+        scale_m_per_px = pixels_to_cm(1, dpi)/100 * scale  # m par pixel
         
         #Calcul plus court chemin
         start_real, end_real, path, nav_path = computeShortestPath(mask, all_candidates, scale_m_per_px=scale_m_per_px)
@@ -423,16 +481,18 @@ async def itinerary_route(
             raise HTTPException(status_code=404, detail="Aucun chemin trouvé entre les deux points")
 
         #Dessiner chemin sur map
-        img = cv2.imread(map_path)  # ouvrir
+        img = cv2.imread(map_path)
+        if mask_rgba is not None:
+            alpha = mask_rgba[:,:,3] / 255.0
+            for c in range(3):
+                img[:,:,c] = (1-alpha) * img[:,:,c] + alpha * mask_rgba[:,:,c]
         img_path = drawPath(img, path, start_real, end_real)
 
         
         steps = textual_itinerary(nav_path, scale_m_per_px=scale_m_per_px)
-        time_hours = length_m / 1000 / 6  # 6km/h à pied
-        if time_hours < 1:
-            time_str = f"{time_hours * 60:.0f} min"
-        else:
-            time_str = f"{time_hours:.1f}h"
+
+        length_m = compute_path_length_m(path, scale_m_per_px)
+        time_str = format_walking_time(length_m)
         return JSONResponse(content={
             "map_id": map_id,
             "distance_m": round(length_m, 2),
@@ -448,14 +508,7 @@ async def itinerary_route(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/map/modify_bin")
-async def modify_bin(
-    map_id: int = Form(...),
-    start: str = Form(...),
-    end: str = Form(...)
-):
-    """
-    Modifie le masque binaire associé à une carte en "barrant" une route entre deux points.
-    """
+async def modify_bin(map_id: int = Form(...), start: str = Form(...), end: str = Form(...)):
     try:
         try:
             start_pt = tuple(map(int, start.split(",")))
@@ -465,52 +518,29 @@ async def modify_bin(
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(f"""
-            SELECT use_bin
-            FROM {DB_TABLE_NAME}
-            WHERE id = ?
-        """, (map_id,))
+        cursor.execute(f"SELECT use_bin FROM {DB_TABLE_NAME} WHERE id = ?", (map_id,))
         row = cursor.fetchone()
         if not row:
             conn.close()
             raise HTTPException(status_code=404, detail="Carte introuvable")
-
         use_bin_path = row[0]
         conn.close()
 
         if not Path(use_bin_path).exists():
-            raise HTTPException(status_code=404, detail=f"Fichier binaire introuvable: {use_bin_path}")
+            raise HTTPException(status_code=404, detail=f"Fichier mask introuvable: {use_bin_path}")
 
-        mask = cv2.imread(use_bin_path, cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            raise HTTPException(status_code=500, detail="Impossible de charger le masque binaire")
+        mask = cv2.imread(use_bin_path, cv2.IMREAD_UNCHANGED)  # RGBA
+        if mask is None or mask.shape[2] != 4:
+            raise HTTPException(status_code=500, detail="Impossible de charger le mask RGBA")
 
-        # Barrer la route
         mask_barr = barreRoute(mask, [start_pt, end_pt])
-
-        #nouveau chemin: on ajoute _user_modified avant l’extension et on conserve l'originale
-        orig_path = Path(use_bin_path)
-        new_name = orig_path.stem + "_user_modified.png"
-        new_path = orig_path.parent / new_name
-
-        cv2.imwrite(str(new_path), mask_barr)
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(f"""
-            UPDATE {DB_TABLE_NAME}
-            SET use_bin = ?
-            WHERE id = ?
-        """, (str(new_path), map_id))
-        conn.commit()
-        conn.close()
+        cv2.imwrite(use_bin_path, mask_barr)
 
         return JSONResponse(content={
             "map_id": map_id,
-            "new_use_bin": str(new_path),
-            "message": f"Route barrée entre {start_pt} et {end_pt}. Nouveau fichier créé."
+            "use_bin": str(use_bin_path),
+            "message": f"Barrière ajoutée entre {start_pt} et {end_pt}"
         })
-
     except HTTPException:
         raise
     except Exception as e:
@@ -518,53 +548,33 @@ async def modify_bin(
 
 @app.delete("/map/{map_id}/bin/reset")
 async def reset_bin(map_id: int):
-    """
-    Réinitialise le masque binaire (use_bin) en le remplaçant par l'original_bin.
-    """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(f"""
-            SELECT original_bin, use_bin
-            FROM {DB_TABLE_NAME}
-            WHERE id = ?
-        """, (map_id,))
+        cursor.execute(f"SELECT original_bin, map, use_bin FROM {DB_TABLE_NAME} WHERE id = ?", (map_id,))
         row = cursor.fetchone()
         conn.close()
 
         if not row:
             raise HTTPException(status_code=404, detail="Carte introuvable")
 
-        original_bin, use_bin = row
+        original_bin, map_path, use_bin = row
 
-        if use_bin == original_bin:
-            raise HTTPException(status_code=409, detail="Le masque est déjà à l'état original")
-
-        #supprimer l'ancien fichier use_bin
-        if use_bin and Path(use_bin).exists() and use_bin != original_bin:
-            Path(use_bin).unlink()
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(f"""
-            UPDATE {DB_TABLE_NAME}
-            SET use_bin = ?
-            WHERE id = ?
-        """, (original_bin, map_id))
-        conn.commit()
-        conn.close()
+        # recrée un masque transparent vierge
+        img_ref = cv2.imread(map_path)
+        h, w = img_ref.shape[:2]
+        mask_empty = np.zeros((h, w, 4), dtype=np.uint8)
+        cv2.imwrite(use_bin, mask_empty)
 
         return JSONResponse(content={
             "map_id": map_id,
-            "use_bin": original_bin,
-            "message": "Le masque a été réinitialisé à sa version originale"
+            "use_bin": use_bin,
+            "message": "Le masque a été réinitialisé"
         })
-
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

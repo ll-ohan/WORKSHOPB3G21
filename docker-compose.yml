@@ -1,11 +1,25 @@
-version: "3.9"
-
 services:
-  web:
-    build: .
-    container_name: python_app
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: batmap-api
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+      - ./map_store:/app/map_store
+      - ./data.db:/app/data.db
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: batmap-web
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web-client:/usr/share/nginx/html:ro
+    environment:
+      - API_PROXY_PASS=http://api:8000/
